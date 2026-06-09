@@ -1,15 +1,22 @@
 name: Publish to npm
 
-# Fires when you publish a GitHub Release (Releases → Draft a new release).
-# Requires an NPM_TOKEN repo secret (Settings → Secrets → Actions) — an npm
-# "Automation" access token. The job also emits build provenance via OIDC.
+# Publishes via OIDC "trusted publishing" — NO npm token, nothing to expire.
+#
+# One-time setup on npmjs.com (after the package's first publish):
+#   patchstory package → Settings → Trusted Publishers → Add GitHub Actions:
+#     Organization or user: russ
+#     Repository:           patchstory
+#     Workflow filename:    publish.yml
+#     Environment:          (leave blank)
+#
+# Then publishing is just: GitHub → Releases → Draft a new release → Publish.
 on:
   release:
     types: [published]
 
 permissions:
   contents: read
-  id-token: write # required for `npm publish --provenance`
+  id-token: write # mint the short-lived OIDC token npm exchanges for a publish
 
 jobs:
   publish:
@@ -23,14 +30,17 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: "npm"
 
+      # OIDC trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@latest
+
       - run: npm ci
 
-      - name: Verify before publish
+      - name: Verify
         run: |
           npm run typecheck
           npm test
 
-      - name: Publish (prepack rebuilds the bundle)
-        run: npm publish --workspace packages/cli --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # No NODE_AUTH_TOKEN: npm authenticates via OIDC and attaches provenance
+      # automatically when the package has a matching trusted publisher.
+      - name: Publish
+        run: npm publish --workspace packages/cli --access public
