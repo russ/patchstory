@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="PatchStory — interactive PR walkthroughs from diff to story" />
+</p>
+
 # PatchStory
 
 Generate a **static, interactive PR walkthrough** from a GitHub pull request,
