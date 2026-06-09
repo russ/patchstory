@@ -9,6 +9,7 @@ export interface ParsedArgs {
 /** Flags that take no value (presence = true). */
 const BOOLEAN_FLAGS = new Set([
   "zip", "help", "version", "no-open", "single-file", "serve", "open", "redact",
+  "scaffold",
 ]);
 
 export function parseArgs(argv: string[]): ParsedArgs {

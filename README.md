@@ -144,12 +144,18 @@ Commands
   github <pr-url>         GitHub PR (uses `gh` if available, else public .diff)
   render <walkthrough>    render an existing pr-walkthrough.json
   serve [dir|file]        serve an output folder/file on your LAN
+  schema                  print the pr-walkthrough.json JSON Schema
 
 Options
-  -o, --out <path>        output dir, or .html file with --single-file (default ./walkthrough)
+  -o, --out <path>        output dir; .html file with --single-file;
+                          .json file (or stdout) with --scaffold (default ./walkthrough)
   -g, --generator <name>  none | anthropic (default none)
       --repo <dir>        git repo to operate in (default cwd)
       --model <id>        model id for the anthropic generator
+      --scaffold          emit the editable pr-walkthrough.json (the IR) instead
+                          of rendering — for an agent or human to enrich
+      --emit-diff <file>  with --scaffold: also write the resolved raw diff, so the
+                          same bytes can be passed to `render --diff`
       --single-file       emit one self-contained .html (easy to email/attach)
       --redact            mask secrets in the diff before generating/rendering
       --serve             serve the result on your LAN after generating
@@ -183,6 +189,37 @@ overview, related commits per chapter, and a footer build stamp.
 
 Keyboard: `j`/`k` next/prev chapter · `/` search · `e`/`c` expand/collapse all ·
 `r` toggle reviewed · `t` theme · `?` shortcuts · `Esc` close.
+
+---
+
+## Author the story with your own AI agent
+
+PatchStory keeps the **story** (a JSON document) separate from the **renderer**, so you
+don't need the built-in `anthropic` adapter to get an AI-written walkthrough — you can let
+*your own* coding agent (Claude Code, Cursor, aider, …) author it. The agent reads the diff
+in the context of the whole repo, so its narrative is usually better than a one-shot API
+call, and **no API key is involved**.
+
+The flow is three commands:
+
+```bash
+# 1. Scaffold a schema-valid skeleton from any source, plus the exact diff bytes.
+patchstory github <pr-url> --scaffold -o pr-walkthrough.json --emit-diff pr.diff
+
+# 2. Your agent rewrites pr-walkthrough.json into a real narrative — chapter intent,
+#    risk, reviewer questions, verification steps. Validate against the schema anytime:
+patchstory schema > pr-walkthrough.schema.json
+
+# 3. Render the agent's story. --redact keeps secrets out of the embedded diff.
+patchstory render pr-walkthrough.json --diff pr.diff --redact --single-file -o pr.html --open
+```
+
+`--scaffold` works with every source command (`diff`, `commits`, `file`, `github`) and runs
+the `none` heuristic to hand the agent an accurate starting point — correct `stats`, file
+groupings, and `diff_hunks` line numbers — which the agent then enriches. Because
+`--emit-diff` writes the *same* bytes the scaffold was computed from, the hunk line refs stay
+aligned when you `render --diff` them. (`--redact` masks the embedded diff at render time; the
+scaffolded IR and emitted diff are left unredacted for the agent to read.)
 
 ---
 
