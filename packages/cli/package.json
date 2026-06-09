@@ -1,0 +1,28 @@
+{
+  "name": "patchstory",
+  "version": "0.1.0",
+  "description": "Generate a static, interactive PR walkthrough from a git diff or GitHub PR.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Russell Smith",
+  "homepage": "https://github.com/russ/patchstory#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/russ/patchstory.git",
+    "directory": "packages/cli"
+  },
+  "keywords": ["pull-request", "code-review", "diff", "walkthrough", "static-site", "cli", "git"],
+  "bin": {
+    "patchstory": "./dist/patchstory.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@patchstory/core": "0.1.0",
+    "@patchstory/renderer": "0.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

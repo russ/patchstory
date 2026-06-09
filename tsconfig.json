@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@patchstory/core": ["packages/core/src/index.ts"],
+      "@patchstory/core/*": ["packages/core/src/*"],
+      "@patchstory/renderer": ["packages/renderer/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/core/src",
+    "packages/renderer/src",
+    "packages/renderer/web",
+    "packages/cli/src",
+    "build.mjs"
+  ]
+}
