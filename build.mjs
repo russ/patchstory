@@ -45,6 +45,9 @@ function generateAssetsModule(js, css, html) {
 async function bundleCli() {
   mkdirSync(cliDist, { recursive: true });
   const outfile = join(cliDist, "patchstory.mjs");
+  const cliVersion = JSON.parse(
+    readFileSync(join(root, "packages/cli/package.json"), "utf8"),
+  ).version;
   await build({
     entryPoints: [join(root, "packages/cli/src/cli.ts")],
     bundle: true,
@@ -53,6 +56,8 @@ async function bundleCli() {
     target: ["node20"],
     outfile,
     legalComments: "none",
+    // Inject the package version so `--version` always matches what's published.
+    define: { __PATCHSTORY_VERSION__: JSON.stringify(cliVersion) },
     // node builtins stay external automatically on platform:node;
     // workspace packages (@patchstory/*) are bundled from their TS source.
   });

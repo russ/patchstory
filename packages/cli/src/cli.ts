@@ -26,7 +26,11 @@ import { parseArgs, flagStr } from "./args.ts";
 import { zipDirectory } from "./zip.ts";
 import { serveStatic, findFreePort, openBrowser, lanIp } from "./serve.ts";
 
-const VERSION = "0.1.0";
+// Injected at build time from packages/cli/package.json (see build.mjs).
+// The typeof guard keeps `node src/cli.ts` working in dev (no define).
+declare const __PATCHSTORY_VERSION__: string;
+const VERSION =
+  typeof __PATCHSTORY_VERSION__ !== "undefined" ? __PATCHSTORY_VERSION__ : "0.0.0-dev";
 
 const HELP = `patchstory ${VERSION} — turn a diff into an interactive static walkthrough
 
