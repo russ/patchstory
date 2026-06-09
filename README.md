@@ -4,6 +4,10 @@
 
 # PatchStory
 
+[![CI](https://github.com/russ/patchstory/actions/workflows/ci.yml/badge.svg)](https://github.com/russ/patchstory/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/patchstory.svg)](https://www.npmjs.com/package/patchstory)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Generate a **static, interactive PR walkthrough** from a GitHub pull request,
 git branch comparison, commit range, or raw diff — as a self-contained folder of
 HTML/CSS/JS you can zip, email, attach to a ticket, or open locally in a browser
