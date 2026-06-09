@@ -1,6 +1,6 @@
 {
   "name": "patchstory",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Generate a static, interactive PR walkthrough from a git diff or GitHub PR.",
   "type": "module",
   "license": "MIT",
