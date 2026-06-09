@@ -221,9 +221,16 @@ groupings, and `diff_hunks` line numbers — which the agent then enriches. Beca
 aligned when you `render --diff` them. (`--redact` masks the embedded diff at render time; the
 scaffolded IR and emitted diff are left unredacted for the agent to read.)
 
-A ready-to-install **Claude Code** skill that runs exactly this flow lives in
-[`integrations/claude-code/`](integrations/claude-code/) — it auto-detects the source, scaffolds,
-has Claude author the narrative, and renders. Other agents can follow the same three commands.
+A ready-to-install **Claude Code** plugin that runs exactly this flow lives in
+[`integrations/claude-code/`](integrations/claude-code/):
+
+```text
+/plugin marketplace add russ/patchstory
+/plugin install patchstory@russ-patchstory
+```
+
+It auto-detects the source, scaffolds, has Claude author the narrative, and renders. Other
+agents can follow the same three commands.
 
 ---
 

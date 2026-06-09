@@ -1,0 +1,10 @@
+{
+  "name": "patchstory",
+  "description": "Turn a pull request or local change into an interactive, human-readable PR walkthrough. The agent authors the JSON story; patchstory renders it as a self-contained .html (secrets redacted) and opens it in the browser.",
+  "version": "0.1.0",
+  "author": { "name": "Russell Smith" },
+  "homepage": "https://github.com/russ/patchstory",
+  "repository": "https://github.com/russ/patchstory",
+  "license": "MIT",
+  "keywords": ["pull-request", "code-review", "diff", "walkthrough", "agent"]
+}
