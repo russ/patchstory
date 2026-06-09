@@ -1,0 +1,211 @@
+{
+  "version": "0.1",
+  "title": "Add Redis-backed rate limiting to the public API",
+  "summary": "Introduces a per-client, per-minute request ceiling on the public API, enforced by a new Rack middleware backed by Redis counters. Each API client gets a tier (standard / pro / enterprise) with a sensible default, plus an optional per-client override for noisy-but-trusted integrations. Over-limit requests get a 429 with Retry-After; every response advertises the client's remaining budget via X-RateLimit-* headers.",
+  "source": {
+    "type": "github_pr",
+    "repo": "acme/api",
+    "pr_number": 482,
+    "base": "main",
+    "head": "feature/api-rate-limiting"
+  },
+  "stats": {
+    "files_changed": 6,
+    "additions": 169,
+    "deletions": 0
+  },
+  "themes": [
+    "Data model & migrations",
+    "Domain model",
+    "Request middleware",
+    "Configuration",
+    "Tests",
+    "Documentation"
+  ],
+  "reviewer_path": [
+    "migration",
+    "api-client-model",
+    "rate-limiter-middleware",
+    "config",
+    "tests",
+    "docs"
+  ],
+  "start_here": [
+    {
+      "file": "db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb",
+      "reason": "schema change — defines the tier + override columns everything else reads (+7/-0)"
+    },
+    {
+      "file": "app/middleware/rate_limiter.rb",
+      "reason": "the enforcement path — where a request can be turned into a 429 (+57/-0)"
+    },
+    {
+      "file": "app/models/api_client.rb",
+      "reason": "defines how a client's effective limit is computed (+22/-0)"
+    }
+  ],
+  "chapters": [
+    {
+      "id": "migration",
+      "title": "Data model & migrations",
+      "summary": "Adds rate_limit_tier and requests_per_minute to api_clients, with an index on the tier.",
+      "intent": "Give every API client a durable tier and an optional per-client ceiling, so the limit travels with the record instead of living only in config.",
+      "risk_level": "high",
+      "files": [
+        "db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb"
+      ],
+      "diff_hunks": [
+        {
+          "file": "db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb",
+          "start_line": 1,
+          "end_line": 9,
+          "summary": "Two non-null columns with defaults + a tier index."
+        }
+      ],
+      "review_notes": [
+        "Both columns are NOT NULL with defaults, so existing rows backfill automatically — confirm 'standard'/60 is the right default for clients created before this change.",
+        "On a large api_clients table, adding NOT NULL columns can lock writes; is this table small enough, or should the column be added nullable then backfilled?",
+        "There's no down-migration override — verify `change` reverses cleanly (drops both columns and the index)."
+      ],
+      "verification_steps": [
+        "Run the migration forward, then `rails db:rollback STEP=1`, on a copy of production.",
+        "Confirm a pre-existing client loads with rate_limit_tier='standard' and requests_per_minute=60."
+      ]
+    },
+    {
+      "id": "api-client-model",
+      "title": "Domain model — ApiClient#rate_limit",
+      "summary": "Adds the TIER_LIMITS table, a tier validation, the effective-limit calculation, and the Redis key helper.",
+      "intent": "Make the model the single source of truth for 'what is this client's limit right now', so the middleware stays dumb and testable.",
+      "risk_level": "medium",
+      "files": [
+        "app/models/api_client.rb"
+      ],
+      "diff_hunks": [
+        {
+          "file": "app/models/api_client.rb",
+          "start_line": 1,
+          "end_line": 33,
+          "summary": "Tier constants, validation, rate_limit, and rate_limit_key."
+        }
+      ],
+      "review_notes": [
+        "rate_limit takes the MAX of the tier default and the override — so the override can only raise the ceiling, never tighten it. Is that the intended policy? A client downgraded to a stricter custom limit would be silently ignored.",
+        "`requests_per_minute.to_i` coerces nil to 0, which is harmless given the max(); confirm the column's NOT NULL default makes nil impossible anyway.",
+        "rate_limit_key embeds the record id only — fine for a single Redis namespace, but worth confirming keys can't collide across environments sharing one Redis."
+      ],
+      "verification_steps": [
+        "In a console: set tier='pro', expect rate_limit == 600; then set requests_per_minute=1000 and expect 1000.",
+        "Set an invalid tier and confirm the validation rejects it."
+      ]
+    },
+    {
+      "id": "rate-limiter-middleware",
+      "title": "Request middleware — RateLimiter",
+      "summary": "New Rack middleware: increments a per-window Redis counter, short-circuits with 429 over the ceiling, and stamps X-RateLimit-* headers on every API response.",
+      "intent": "Enforce the ceiling at the edge of the request cycle, before controllers run, while leaving non-API and unauthenticated traffic completely untouched.",
+      "risk_level": "high",
+      "files": [
+        "app/middleware/rate_limiter.rb"
+      ],
+      "diff_hunks": [
+        {
+          "file": "app/middleware/rate_limiter.rb",
+          "start_line": 1,
+          "end_line": 58,
+          "summary": "call() throttling path, INCR+EXPIRE round-trip, and the 429 response."
+        }
+      ],
+      "review_notes": [
+        "The window is a wall-clock minute string (YYYYMMDDHHMM), so limits reset on fixed boundaries rather than a sliding window — a client can burst 2x the ceiling across a boundary. Acceptable for v1?",
+        "If Redis is down, @redis.multi raises and the request 500s — should the middleware fail OPEN (allow the request) instead of taking the API down with Redis?",
+        "EXPIRE is reset to 60s on every increment, so a continuously-busy key never expires mid-window; confirm that's intended and not a subtle key-leak.",
+        "Security-sensitive path: this can hard-block legitimate clients. Double-check api_path? and the `client` guard so a misconfigured route can't throttle the whole app."
+      ],
+      "verification_steps": [
+        "Hit an /api/ endpoint as a standard client 61 times in a minute; expect the 61st to return 429 with Retry-After: 60.",
+        "Stop Redis and send one API request; observe the failure mode and decide whether it matches the desired open/closed policy.",
+        "Confirm a non-/api/ path (e.g. /health) and an unauthenticated request pass through with no X-RateLimit headers."
+      ]
+    },
+    {
+      "id": "config",
+      "title": "Configuration",
+      "summary": "Adds config/rate_limits.yml: per-environment enable flag and the documented tier ceilings.",
+      "intent": "Let enforcement be toggled per environment (off in development) and keep the tier ceilings written down in one place for seeds and humans.",
+      "risk_level": "low",
+      "files": [
+        "config/rate_limits.yml"
+      ],
+      "diff_hunks": [
+        {
+          "file": "config/rate_limits.yml",
+          "start_line": 1,
+          "end_line": 18,
+          "summary": "default anchor, development (disabled), production tiers."
+        }
+      ],
+      "review_notes": [
+        "The middleware reads ApiClient#rate_limit directly and doesn't appear to consult this file's `enabled` flag — confirm something actually wires `enabled: false` to skip the middleware in development, or the flag is a no-op.",
+        "burst_multiplier and retry_after_seconds are declared here but Retry-After is hard-coded to 60 in the middleware; reconcile the two so the config isn't misleading."
+      ],
+      "verification_steps": [
+        "Boot in development and confirm API requests are not throttled.",
+        "Confirm production tier ceilings here match TIER_LIMITS in the model."
+      ]
+    },
+    {
+      "id": "tests",
+      "title": "Tests",
+      "summary": "Specs for the middleware: under-limit pass-through, 429 over the ceiling, non-API/unauthenticated pass-through, and per-client override.",
+      "intent": "Lock in the four behaviors that matter: it throttles, it doesn't over-throttle, it ignores what it should, and overrides win.",
+      "risk_level": "low",
+      "files": [
+        "spec/middleware/rate_limiter_spec.rb"
+      ],
+      "diff_hunks": [
+        {
+          "file": "spec/middleware/rate_limiter_spec.rb",
+          "start_line": 1,
+          "end_line": 38,
+          "summary": "Four examples over a MockRedis-backed middleware."
+        }
+      ],
+      "review_notes": [
+        "Tests use MockRedis — does it implement multi/incr/expire faithfully enough that a green suite really proves the production Redis path? Consider one integration test against a real Redis.",
+        "There's no test for the window boundary (the burst-across-reset case) or for Redis being unavailable — the two riskiest behaviors are currently unspecified."
+      ],
+      "verification_steps": [
+        "Run `bundle exec rspec spec/middleware/rate_limiter_spec.rb` and confirm all four examples pass.",
+        "Temporarily break rate_limit in the model and confirm the 429 test fails (the test actually exercises the limit)."
+      ]
+    },
+    {
+      "id": "docs",
+      "title": "Documentation",
+      "summary": "Adds docs/api/rate-limiting.md: tiers table, override behavior, and the response headers contract.",
+      "intent": "Tell API consumers exactly what to expect — the ceilings, how to read their remaining budget, and what a 429 looks like.",
+      "risk_level": "low",
+      "files": [
+        "docs/api/rate-limiting.md"
+      ],
+      "diff_hunks": [
+        {
+          "file": "docs/api/rate-limiting.md",
+          "start_line": 1,
+          "end_line": 28,
+          "summary": "Tiers, override rule, and X-RateLimit-* / 429 contract."
+        }
+      ],
+      "review_notes": [
+        "The doc promises X-RateLimit-Limit and X-RateLimit-Remaining but not the X-RateLimit-Reset many clients expect — call out its absence or add it.",
+        "Confirm the documented ceilings (60 / 600 / 6,000) stay in sync with TIER_LIMITS; this is the third place those numbers appear (model, config, docs)."
+      ],
+      "verification_steps": [
+        "Render the Markdown and check the table and code spans display correctly.",
+        "Cross-check every number and header name against the middleware and model."
+      ]
+    }
+  ],
+  "generator": "claude-code"
+}

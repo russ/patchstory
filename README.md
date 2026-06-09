@@ -38,6 +38,35 @@ patchstory render ./pr-walkthrough.json --out ./site
 
 ---
 
+## What it looks like
+
+A 6-file PR — *"Add Redis-backed rate limiting to the public API"* — walked
+through by PatchStory. The source diff and the agent-authored story are tracked
+in [`examples/rate-limiting.diff`](examples/rate-limiting.diff) and
+[`examples/rate-limiting.json`](examples/rate-limiting.json); render the page
+below yourself with:
+
+```bash
+patchstory render examples/rate-limiting.json --diff examples/rate-limiting.diff --single-file --open
+```
+
+The **overview** maps the whole change: a "start here" reading list, the stats,
+the recurring themes, and a risk-rated reviewer path.
+
+<p align="center">
+  <img src="assets/screenshot-overview.png" alt="PatchStory overview — start-here files, change stats, themes, and a risk-rated reviewer path" width="860" />
+</p>
+
+Open a **chapter** and you get its intent, the reviewer questions to ask, the
+verification steps, and the syntax-highlighted diff (unified or split,
+collapsible, with per-file "mark reviewed" state).
+
+<p align="center">
+  <img src="assets/screenshot-chapter.png" alt="PatchStory chapter view — intent, reviewer questions, verification steps, and a syntax-highlighted diff" width="860" />
+</p>
+
+---
+
 ## Quick start
 
 ```bash

@@ -1,0 +1,214 @@
+diff --git a/db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb b/db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb
+@@ -0,0 +1,9 @@
++class AddRateLimitingToApiClients < ActiveRecord::Migration[7.1]
++  def change
++    add_column :api_clients, :rate_limit_tier, :string, null: false, default: "standard"
++    add_column :api_clients, :requests_per_minute, :integer, null: false, default: 60
++    add_index :api_clients, :rate_limit_tier
++  end
++end
+diff --git a/app/models/api_client.rb b/app/models/api_client.rb
+index 3c4d5e6..7f8a9b0 100644
+--- a/app/models/api_client.rb
++++ b/app/models/api_client.rb
+@@ -1,11 +1,33 @@
+ class ApiClient < ApplicationRecord
+   belongs_to :organization
+   has_many :api_requests, dependent: :destroy
+
++  # Requests-per-minute ceiling for each tier. A per-record
++  # `requests_per_minute` value can raise (but never lower) the tier default.
++  TIER_LIMITS = {
++    "standard"   => 60,
++    "pro"        => 600,
++    "enterprise" => 6_000,
++  }.freeze
++
+   validates :name, presence: true
++  validates :rate_limit_tier, inclusion: { in: TIER_LIMITS.keys }
++
++  # Effective per-minute limit: the higher of the tier default and any
++  # explicit override stored on the record.
++  def rate_limit
++    [TIER_LIMITS.fetch(rate_limit_tier, 60), requests_per_minute.to_i].max
++  end
++
++  # Redis key for this client's counter in a given one-minute window.
++  def rate_limit_key(window)
++    "ratelimit:#{id}:#{window}"
++  end
+
+   def active?
+     revoked_at.nil?
+   end
+ end
+diff --git a/app/middleware/rate_limiter.rb b/app/middleware/rate_limiter.rb
+new file mode 100644
+index 0000000..c1d2e3f
+--- /dev/null
++++ b/app/middleware/rate_limiter.rb
+@@ -0,0 +1,58 @@
++# Rack middleware that enforces a per-client, per-minute request ceiling using
++# Redis counters. Unauthenticated requests and non-API paths pass straight
++# through, so this only ever throttles identified API traffic.
++class RateLimiter
++  def initialize(app, redis: Redis.current)
++    @app = app
++    @redis = redis
++  end
++
++  def call(env)
++    request = Rack::Request.new(env)
++    client = env["api.client"]
++
++    return @app.call(env) unless client && api_path?(request.path)
++
++    window = Time.now.utc.strftime("%Y%m%d%H%M")
++    count = increment(client.rate_limit_key(window))
++
++    return too_many_requests(client, count) if count > client.rate_limit
++
++    status, headers, body = @app.call(env)
++    headers.merge!(rate_limit_headers(client, count))
++    [status, headers, body]
++  end
++
++  private
++
++  # INCR + EXPIRE in one round-trip so the key always gets a TTL even on the
++  # first request of a window. Returns the post-increment count.
++  def increment(key)
++    count, _ = @redis.multi do |tx|
++      tx.incr(key)
++      tx.expire(key, 60)
++    end
++    count
++  end
++
++  def too_many_requests(client, count)
++    body = { error: "rate_limit_exceeded", limit: client.rate_limit }.to_json
++    headers = rate_limit_headers(client, count).merge(
++      "Content-Type" => "application/json",
++      "Retry-After"  => "60",
++    )
++    [429, headers, [body]]
++  end
++
++  def rate_limit_headers(client, count)
++    {
++      "X-RateLimit-Limit"     => client.rate_limit.to_s,
++      "X-RateLimit-Remaining" => [client.rate_limit - count, 0].max.to_s,
++    }
++  end
++
++  def api_path?(path)
++    path.start_with?("/api/")
++  end
++end
+diff --git a/config/rate_limits.yml b/config/rate_limits.yml
+new file mode 100644
+index 0000000..d4e5f6a
+--- /dev/null
++++ b/config/rate_limits.yml
+@@ -0,0 +1,18 @@
++# Per-environment rate-limiting policy. The RateLimiter middleware reads each
++# client's ceiling from ApiClient#rate_limit at runtime; this file toggles
++# enforcement per environment and documents the tier ceilings used by seeds.
++default: &default
++  retry_after_seconds: 60
++  burst_multiplier: 1.5
++
++development:
++  <<: *default
++  enabled: false
++
++production:
++  <<: *default
++  enabled: true
++  tiers:
++    standard: 60
++    pro: 600
++    enterprise: 6000
+diff --git a/spec/middleware/rate_limiter_spec.rb b/spec/middleware/rate_limiter_spec.rb
+new file mode 100644
+index 0000000..e6f7a8b
+--- /dev/null
++++ b/spec/middleware/rate_limiter_spec.rb
+@@ -0,0 +1,38 @@
++require "rails_helper"
++
++RSpec.describe RateLimiter do
++  let(:redis) { MockRedis.new }
++  let(:client) { create(:api_client, rate_limit_tier: "standard") }
++  let(:app) { ->(_env) { [200, {}, ["ok"]] } }
++  subject(:middleware) { described_class.new(app, redis: redis) }
++
++  def env_for(path, api_client: client)
++    Rack::MockRequest.env_for(path).merge("api.client" => api_client)
++  end
++
++  it "passes requests under the limit through and annotates the response" do
++    status, headers, _ = middleware.call(env_for("/api/v1/posts"))
++    expect(status).to eq(200)
++    expect(headers["X-RateLimit-Limit"]).to eq("60")
++    expect(headers["X-RateLimit-Remaining"]).to eq("59")
++  end
++
++  it "returns 429 once the per-minute ceiling is exceeded" do
++    60.times { middleware.call(env_for("/api/v1/posts")) }
++    status, _, body = middleware.call(env_for("/api/v1/posts"))
++    expect(status).to eq(429)
++    expect(JSON.parse(body.first)).to include("error" => "rate_limit_exceeded")
++  end
++
++  it "leaves unauthenticated and non-API requests untouched" do
++    status, headers, _ = middleware.call(env_for("/health", api_client: nil))
++    expect(status).to eq(200)
++    expect(headers).not_to include("X-RateLimit-Limit")
++  end
++
++  it "honours a per-client override above the tier default" do
++    client.update!(requests_per_minute: 120)
++    status, headers, _ = middleware.call(env_for("/api/v1/posts"))
++    expect(headers["X-RateLimit-Limit"]).to eq("120")
++    expect(status).to eq(200)
++  end
++end
+diff --git a/docs/api/rate-limiting.md b/docs/api/rate-limiting.md
+new file mode 100644
+index 0000000..f8a9b0c
+--- /dev/null
++++ b/docs/api/rate-limiting.md
+@@ -0,0 +1,28 @@
++# API rate limiting
++
++Every authenticated API client is subject to a per-minute request ceiling
++enforced by the `RateLimiter` Rack middleware. Counters live in Redis and reset
++on a fixed 60-second window, so a client gets a fresh budget each minute.
++
++## Tiers
++
++| Tier         | Requests / minute |
++|--------------|-------------------|
++| `standard`   | 60                |
++| `pro`        | 600               |
++| `enterprise` | 6,000             |
++
++A client's effective limit is the higher of its tier default and the
++`requests_per_minute` override column, so a single noisy integration can be
++lifted without promoting it to a whole new tier.
++
++## Response headers
++
++Every API response carries the client's current budget:
++
++- `X-RateLimit-Limit` — the ceiling for the current window.
++- `X-RateLimit-Remaining` — requests left before a `429` is returned.
++
++When the ceiling is exceeded the middleware responds with `429 Too Many
++Requests`, a `Retry-After: 60` header, and a JSON body of
++`{ "error": "rate_limit_exceeded" }`.
