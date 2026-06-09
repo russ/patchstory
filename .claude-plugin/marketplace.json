@@ -1,0 +1,14 @@
+{
+  "name": "russ-patchstory",
+  "owner": { "name": "Russell Smith" },
+  "description": "PatchStory — turn a PR or diff into an interactive, human-readable walkthrough, with your coding agent authoring the narrative.",
+  "plugins": [
+    {
+      "name": "patchstory",
+      "source": "./integrations/claude-code/patchstory",
+      "description": "Turn a pull request or local change into an interactive PR walkthrough. The agent authors the story (chapters with intent, risk, reviewer questions, verification steps); patchstory renders it as a self-contained .html with secrets redacted and opens it.",
+      "homepage": "https://github.com/russ/patchstory",
+      "repository": "https://github.com/russ/patchstory"
+    }
+  ]
+}

@@ -38,14 +38,23 @@ in the browser (serving on the LAN is an alternative — see Notes).
 
 ### 1. Resolve the source + scaffold
 
-Run the helper from inside the target git repo. Pass nothing to auto-detect, or pass a PR
-number, PR URL, range (`main...feature`), or branch name:
+This skill ships a helper at `scripts/collect.sh` next to this SKILL.md. Resolve its absolute
+path first — it works whether installed as a plugin or symlinked manually:
 
 ```bash
-bash scripts/collect.sh                 # auto-detect (branch PR, else branch vs base)
-bash scripts/collect.sh 123             # PR number
-bash scripts/collect.sh https://github.com/org/repo/pull/123
-bash scripts/collect.sh main...my-branch
+COLLECT="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/skills/patchstory/scripts/collect.sh}"
+[ -f "$COLLECT" ] || COLLECT="$HOME/.claude/skills/patchstory/scripts/collect.sh"
+[ -f "$COLLECT" ] || COLLECT="$(find "$HOME/.claude" -name collect.sh -path '*patchstory*' 2>/dev/null | head -1)"
+```
+
+Then run it from inside the target git repo. Pass nothing to auto-detect, or pass a PR number,
+PR URL, range (`main...feature`), or branch name:
+
+```bash
+bash "$COLLECT"                          # auto-detect (branch PR, else branch vs base)
+bash "$COLLECT" 123                      # PR number
+bash "$COLLECT" https://github.com/org/repo/pull/123
+bash "$COLLECT" main...my-branch
 ```
 
 (`--repo <dir>` targets another checkout; `--out <dir>` overrides the work-dir root,
