@@ -16,9 +16,13 @@
     "patchstory": "./dist/patchstory.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
-  "dependencies": {
+  "scripts": {
+    "prepack": "node ../../build.mjs"
+  },
+  "devDependencies": {
     "@patchstory/core": "0.1.0",
     "@patchstory/renderer": "0.1.0"
   },
