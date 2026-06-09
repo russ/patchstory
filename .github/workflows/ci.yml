@@ -9,9 +9,9 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # Node >= 22.6 is required: the test runner executes TypeScript
           # directly via native type stripping (default-on in 24.x).
