@@ -6,7 +6,9 @@ description: >
   open PR if there is one, otherwise the branch vs its default base — or takes an explicit
   PR number / PR URL / git range. The agent authors the narrative itself (chapters with
   intent, risk, reviewer questions, and verification steps), then patchstory renders it as
-  one self-contained .html with secrets redacted and opens it in the browser.
+  one self-contained .html with secrets redacted and opens it in the browser. The rendered
+  page also has a narrated "play" mode — a self-playing screencast that pans the diff while
+  reading each chapter aloud — so author a short spoken `narration` per chapter.
   Triggers: "/patchstory", "patchstory this", "make a walkthrough of this PR",
   "tell the story of this PR", "PR walkthrough", "explain this PR for a human",
   "patchstory #123", "patchstory the current branch".
@@ -89,6 +91,10 @@ who has never seen the change:
   one chapter when they tell one sub-story. Each chapter:
   - **`intent`** — *why* this exists / what problem it solves (the most valuable field).
   - **`summary`** — what the diff in this chapter does.
+  - **`narration`** — 1–4 sentences of *spoken* prose for the page's "play" mode: plain and
+    conversational, what you'd say out loud while walking someone through this chapter. Avoid
+    symbols/paths that sound bad read aloud. Optional, but author it — without it, play mode
+    falls back to reading `intent` then `summary`.
   - **`risk_level`** — `low|medium|high`. Raise for auth, payments, migrations, money math,
     deletions, or anything externally observable.
   - **`review_notes`** — sharp reviewer questions.
@@ -120,7 +126,8 @@ Authoritative copy: `patchstory schema`. Required: `version`, `title`, `summary`
 (+ `source.type` ∈ `github_pr|git_diff|commit_range|diff_file`), `stats` (`files_changed`,
 `additions`, `deletions` — numbers), `chapters`. Each chapter needs a **unique** `id`, `title`,
 `summary`, `risk_level` (`low|medium|high`), and `files`. `diff_hunks` items need `file`,
-`start_line`, `end_line` (line numbers in the **new** file). Everything else is optional.
+`start_line`, `end_line` (line numbers in the **new** file). Everything else is optional,
+including the chapter's `narration` (spoken script for "play" mode).
 
 ```jsonc
 {
@@ -139,6 +146,7 @@ Authoritative copy: `patchstory schema`. Required: `version`, `title`, `summary`
       "title": "Detect multiple faces in uploaded media",
       "summary": "Adds metadata and detection logic for multi-face media.",
       "intent": "Determine whether creator approval is needed before publishing.",
+      "narration": "When media is uploaded, we now count the faces in it. If there's more than one person, the upload can't auto-publish — it routes to the creator for approval first. This chapter adds the detection logic and the fields that track that state.",
       "risk_level": "medium",
       "files": ["app/models/media.rb", "app/services/face_detection_service.rb"],
       "diff_hunks": [

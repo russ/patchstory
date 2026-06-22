@@ -35,6 +35,11 @@ patchstory render ./pr-walkthrough.json --out ./site
   `fetch` required). Zip-friendly.
 - **AI optional.** A heuristic generator always works with no API key. AI
   *improves* the story; it is never required.
+- **Narrated play mode.** Press **▶ Play** to turn the walkthrough into a
+  self-playing screencast: each chapter becomes a scene that pans the actual
+  diff and spotlights the lines it references, narrated aloud via the browser's
+  built-in speech synthesis (captions included). No ffmpeg, no API key, no
+  network — the same single `.html`, just playing itself.
 
 ---
 
@@ -217,7 +222,9 @@ dark, copy-summary, a "Start here" guide and recurring-theme detection on the
 overview, related commits per chapter, and a footer build stamp.
 
 Keyboard: `j`/`k` next/prev chapter · `/` search · `e`/`c` expand/collapse all ·
-`r` toggle reviewed · `t` theme · `?` shortcuts · `Esc` close.
+`r` toggle reviewed · `p` play narrated walkthrough · `t` theme · `?` shortcuts ·
+`Esc` close. In play mode: `space` play/pause · `←`/`→` prev/next scene · `m`
+mute (captions only) · `Esc` close.
 
 ---
 

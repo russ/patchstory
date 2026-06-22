@@ -1076,6 +1076,9 @@ function onKey(e: KeyboardEvent) {
     case "e": setAllHunks(false); break;
     case "c": setAllHunks(true); break;
     case "r": toggleCurrentReviewed(); break;
+    case "p": openPlayer(parseRoute().name === "chapter"
+      ? Math.max(0, orderedChapters().findIndex((c) => c.id === parseRoute().param))
+      : 0); break;
     case "?": setHelp(true); break;
   }
 }
@@ -1106,6 +1109,7 @@ function buildHelpOverlay(): HTMLElement {
         kbdRow("/", "Focus search"),
         kbdRow("e / c", "Expand / collapse all hunks"),
         kbdRow("r", "Toggle reviewed (current chapter/file)"),
+        kbdRow("p", "Play narrated walkthrough"),
         kbdRow("t", "Toggle light / dark"),
         kbdRow("?", "Show this help"),
         kbdRow("Esc", "Close"),
@@ -1179,6 +1183,17 @@ function mountChrome() {
     "Copy summary",
   );
 
+  const playBtn = el(
+    "button",
+    {
+      class: "btn small playbtn",
+      type: "button",
+      title: "Play narrated walkthrough (p)",
+      onclick: () => openPlayer(0),
+    },
+    "▶ Play",
+  );
+
   // Mobile drawer toggle (hidden on wide screens via CSS).
   const menuBtn = el(
     "button",
@@ -1205,6 +1220,7 @@ function mountChrome() {
     el("div", { class: "topbar-spacer" }),
     search,
     el("div", { class: "progress", id: "progress" }),
+    playBtn,
     copyBtn,
     themeBtn,
   );
@@ -1230,6 +1246,470 @@ function mountChrome() {
   app.appendChild(buildFooter());
   app.appendChild(backdrop);
   app.appendChild(buildHelpOverlay());
+}
+
+/* ----------------------------- Play mode -------------------------------- */
+/**
+ * "Play" turns the static walkthrough into a narrated, auto-advancing
+ * screencast: each chapter becomes a scene that pans through the actual diff
+ * (spotlighting the lines it references) while the browser's built-in speech
+ * synthesis reads the chapter's narration. No ffmpeg, no API key, no network —
+ * it's the same single .html, just playing itself. Narration text also shows as
+ * captions, so it works fully muted.
+ */
+
+interface PlayerEls {
+  scene: HTMLElement;
+  caption: HTMLElement;
+  playBtn: HTMLButtonElement;
+  muteBtn: HTMLButtonElement;
+  counter: HTMLElement;
+  progressFill: HTMLElement;
+}
+
+const player = {
+  idx: 0,
+  playing: false,
+  muted: false,
+  done: false,
+  overlay: null as HTMLElement | null,
+  els: null as PlayerEls | null,
+  code: null as HTMLElement | null, // the scrolling code surface of the current scene
+  raf: 0,
+  backup: 0, // safety timer id for the speaking case
+  token: 0, // bumped on every scene change to invalidate stale callbacks
+  // scene clock (drives both the pan and, when not speaking, auto-advance)
+  elapsed: 0,
+  duration: 0,
+  last: 0,
+  speaking: false,
+};
+
+function canSpeak(): boolean {
+  return typeof window !== "undefined" && "speechSynthesis" in window;
+}
+
+function reduceMotion(): boolean {
+  return !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+function narrationText(c: Chapter): string {
+  if (c.narration && c.narration.trim()) return c.narration.trim();
+  const bits: string[] = [];
+  if (c.intent) bits.push(c.intent.trim());
+  if (c.summary) bits.push(c.summary.trim());
+  return bits.join(" ");
+}
+
+/** Build the scrolling code surface for a scene: the chapter's diff hunks, with
+ *  the specifically-referenced line ranges spotlighted. */
+function buildSceneCode(c: Chapter): HTMLElement {
+  const wrap = el("div", { class: "scene-code" });
+  const refsByFile = new Map<string, Array<[number, number]>>();
+  for (const r of c.diff_hunks ?? []) {
+    const arr = refsByFile.get(r.file) ?? [];
+    arr.push([r.start_line, r.end_line]);
+    refsByFile.set(r.file, arr);
+  }
+
+  let any = false;
+  let spotted = false;
+  for (const path of c.files) {
+    const f = fileByPath.get(path);
+    if (!f || f.binary || !f.hunks.length) continue;
+    const lang = langForPath(f.path);
+    const refs = refsByFile.get(path) ?? null;
+    const card = el(
+      "div",
+      { class: "scene-file" },
+      el("div", { class: "scene-file-head" }, statusTag(f), el("span", { class: "scene-file-path" }, f.path)),
+    );
+    // Prefer the hunks that overlap the referenced ranges; fall back to all.
+    const overlapping = refs
+      ? f.hunks.filter((h) => refs.some(([s, e]) => h.newStart <= e && h.newStart + h.newLines >= s))
+      : f.hunks;
+    const hunks = overlapping.length ? overlapping : f.hunks;
+    for (const h of hunks) {
+      const body = renderUnifiedHunk(h, lang);
+      if (refs) {
+        body.querySelectorAll<HTMLElement>(".dl").forEach((row) => {
+          const n = parseInt(row.querySelector(".ln-new")?.textContent ?? "", 10);
+          if (!Number.isNaN(n) && refs.some(([s, e]) => n >= s && n <= e)) {
+            row.classList.add("dl-spot");
+            spotted = true;
+          }
+        });
+      }
+      card.appendChild(body);
+      any = true;
+    }
+    wrap.appendChild(card);
+  }
+  // Only dim non-referenced lines when there's actually something to spotlight.
+  if (spotted) wrap.classList.add("has-spots");
+  if (!any) wrap.appendChild(el("p", { class: "scene-nocode muted" }, "No code changes to show for this chapter."));
+
+  // Scenes are small — highlight syntax eagerly rather than on scroll.
+  wrap.querySelectorAll<HTMLElement>("[data-hl]").forEach((cell) => {
+    const lang = cell.getAttribute("data-hl")!;
+    const raw = cell.textContent ?? "";
+    if (raw) cell.innerHTML = highlightLine(raw, lang);
+    cell.removeAttribute("data-hl");
+  });
+  return wrap;
+}
+
+function renderScene() {
+  const els = player.els;
+  if (!els) return;
+  const chapters = orderedChapters();
+  const c = chapters[player.idx];
+  clear(els.scene);
+
+  els.scene.appendChild(
+    el(
+      "div",
+      { class: "scene-head" },
+      el("span", { class: "scene-eyebrow" }, `Chapter ${player.idx + 1} of ${chapters.length}`),
+      riskBadge(c.risk_level),
+    ),
+  );
+  els.scene.appendChild(el("h2", { class: "scene-title" }, c.title));
+  if (c.intent) els.scene.appendChild(el("div", { class: "scene-intent" }, c.intent));
+  player.code = buildSceneCode(c);
+  els.scene.appendChild(player.code);
+
+  // restart the fade-in animation
+  els.scene.classList.remove("scene-in");
+  void els.scene.offsetWidth;
+  els.scene.classList.add("scene-in");
+}
+
+function easeInOut(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function stopSceneTimers() {
+  if (player.raf) cancelAnimationFrame(player.raf);
+  player.raf = 0;
+  if (player.backup) clearTimeout(player.backup);
+  player.backup = 0;
+  try {
+    if (canSpeak()) window.speechSynthesis.cancel();
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Start (or restart) the scene clock loop from the current `elapsed`. */
+function runClock() {
+  player.last = performance.now();
+  const step = (now: number) => {
+    if (!player.playing) return;
+    const dt = now - player.last;
+    player.last = now;
+    player.elapsed += dt;
+    const t = player.duration > 0 ? Math.min(1, player.elapsed / player.duration) : 1;
+
+    const code = player.code;
+    if (code && !reduceMotion()) {
+      const max = Math.max(0, code.scrollHeight - code.clientHeight);
+      if (max > 0) code.scrollTop = max * easeInOut(t);
+    }
+    updateProgressBar(t);
+
+    if (t >= 1) {
+      // When speaking, the utterance's onend drives advancement; otherwise the
+      // clock does. (A backup timer covers browsers that never fire onend.)
+      if (!player.speaking) {
+        advance(1);
+        return;
+      }
+    }
+    player.raf = requestAnimationFrame(step);
+  };
+  player.raf = requestAnimationFrame(step);
+}
+
+function playScene() {
+  stopSceneTimers();
+  const token = ++player.token;
+  player.elapsed = 0;
+  player.done = false;
+  renderScene();
+
+  const chapters = orderedChapters();
+  const c = chapters[player.idx];
+  const narration = narrationText(c);
+  if (player.els) {
+    player.els.caption.textContent = narration || "—";
+    player.els.counter.textContent = `${player.idx + 1} / ${chapters.length}`;
+  }
+  updateControls();
+
+  // Estimate scene length from the narration (~2.6 words/sec), min 4.5s.
+  const words = narration.trim() ? narration.trim().split(/\s+/).length : 0;
+  player.duration = Math.max(4500, (words / 2.6) * 1000);
+
+  player.speaking = false;
+  if (player.playing && !player.muted && canSpeak() && narration.trim()) {
+    try {
+      const u = new SpeechSynthesisUtterance(narration);
+      u.rate = 1;
+      u.onend = () => {
+        if (token === player.token && player.playing) advance(1);
+      };
+      u.onerror = () => {
+        // Speech failed (no voices, blocked, headless...). Don't skip the scene —
+        // fall back to the timed clock, which advances at the end of the pan.
+        if (token === player.token) player.speaking = false;
+      };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+      player.speaking = true;
+      // Safety net: some engines drop onend. Advance well after the estimate.
+      player.backup = window.setTimeout(() => {
+        if (token === player.token && player.playing) advance(1);
+      }, player.duration + 10000);
+    } catch {
+      player.speaking = false;
+    }
+  }
+
+  if (player.playing) runClock();
+}
+
+function advance(delta: number) {
+  const chapters = orderedChapters();
+  const next = player.idx + delta;
+  if (next < 0) {
+    player.idx = 0;
+    playScene();
+    return;
+  }
+  if (next >= chapters.length) {
+    finishPlayback();
+    return;
+  }
+  player.idx = next;
+  playScene();
+}
+
+function finishPlayback() {
+  stopSceneTimers();
+  player.playing = false;
+  player.done = true;
+  const els = player.els;
+  if (!els) return;
+  clear(els.scene);
+  els.scene.appendChild(
+    el(
+      "div",
+      { class: "scene-end scene-in" },
+      el("div", { class: "scene-end-mark" }, "✓"),
+      el("h2", {}, "Walkthrough complete"),
+      el("p", { class: "muted" }, `${orderedChapters().length} chapters · ${W?.title ?? ""}`),
+      el(
+        "div",
+        { class: "scene-end-actions" },
+        el("button", { class: "btn", type: "button", onclick: () => replay() }, "↻ Replay"),
+        el("button", { class: "btn ghost", type: "button", onclick: () => closePlayer() }, "Close"),
+      ),
+    ),
+  );
+  els.caption.textContent = "—";
+  updateProgressBar(1);
+  updateControls();
+}
+
+function replay() {
+  player.idx = 0;
+  player.playing = true;
+  playScene();
+}
+
+function togglePlay() {
+  if (player.done) {
+    replay();
+    return;
+  }
+  player.playing = !player.playing;
+  if (player.playing) {
+    // Resume: continue speech if we were mid-utterance, else re-speak nothing
+    // (the clock simply carries on driving the pan / advance).
+    if (player.speaking && canSpeak()) {
+      try {
+        window.speechSynthesis.resume();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (player.speaking) {
+      const token = player.token;
+      const remaining = Math.max(2000, player.duration + 10000 - player.elapsed);
+      player.backup = window.setTimeout(() => {
+        if (token === player.token && player.playing) advance(1);
+      }, remaining);
+    }
+    runClock();
+  } else {
+    if (player.raf) cancelAnimationFrame(player.raf);
+    player.raf = 0;
+    if (player.backup) clearTimeout(player.backup);
+    player.backup = 0;
+    if (player.speaking && canSpeak()) {
+      try {
+        window.speechSynthesis.pause();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  updateControls();
+}
+
+function toggleMute() {
+  player.muted = !player.muted;
+  if (player.muted && canSpeak()) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+    player.speaking = false;
+  }
+  updateControls();
+  // Re-arm the current scene so muting/unmuting takes effect immediately.
+  if (player.playing && !player.done) playScene();
+}
+
+function updateProgressBar(t: number) {
+  const els = player.els;
+  if (!els) return;
+  const total = orderedChapters().length || 1;
+  const frac = Math.min(1, (player.idx + Math.min(1, Math.max(0, t))) / total);
+  els.progressFill.style.width = `${frac * 100}%`;
+}
+
+function updateControls() {
+  const els = player.els;
+  if (!els) return;
+  els.playBtn.textContent = player.done ? "↻" : player.playing ? "❚❚" : "▶";
+  els.playBtn.title = player.done ? "Replay" : player.playing ? "Pause (space)" : "Play (space)";
+  els.muteBtn.textContent = player.muted ? "🔇" : "🔊";
+  els.muteBtn.title = player.muted ? "Captions only — click for narration" : "Narration on — click to mute";
+  els.muteBtn.classList.toggle("active", !player.muted);
+}
+
+function playerKey(e: KeyboardEvent) {
+  if (!player.overlay) return;
+  switch (e.key) {
+    case "Escape":
+      e.preventDefault();
+      e.stopPropagation();
+      closePlayer();
+      break;
+    case " ":
+      e.preventDefault();
+      e.stopPropagation();
+      togglePlay();
+      break;
+    case "ArrowRight":
+      e.preventDefault();
+      e.stopPropagation();
+      advance(1);
+      break;
+    case "ArrowLeft":
+      e.preventDefault();
+      e.stopPropagation();
+      advance(-1);
+      break;
+    case "m":
+      e.stopPropagation();
+      toggleMute();
+      break;
+  }
+}
+
+function ctrlBtn(label: string, title: string, cls: string, onClick: () => void): HTMLButtonElement {
+  return el(
+    "button",
+    { class: `pbtn ${cls}`, type: "button", title, onclick: onClick },
+    label,
+  ) as HTMLButtonElement;
+}
+
+function openPlayer(startIdx = 0) {
+  if (!W || !orderedChapters().length) return;
+  if (player.overlay) closePlayer();
+  player.idx = Math.max(0, Math.min(orderedChapters().length - 1, startIdx));
+  player.playing = true;
+  player.done = false;
+
+  const scene = el("div", { class: "player-scene" });
+  const caption = el("div", { class: "player-caption", "aria-live": "polite" });
+  const progressFill = el("div", { class: "player-progress-fill" });
+  const counter = el("span", { class: "player-counter" });
+
+  const playBtn = ctrlBtn("❚❚", "Pause (space)", "pbtn-play", () => togglePlay());
+  const muteBtn = ctrlBtn("🔊", "Mute narration", "pbtn-mute", () => toggleMute());
+  const prevBtn = ctrlBtn("⏮", "Previous chapter (←)", "", () => advance(-1));
+  const nextBtn = ctrlBtn("⏭", "Next chapter (→)", "", () => advance(1));
+  const closeBtn = ctrlBtn("✕", "Close (Esc)", "pbtn-close", () => closePlayer());
+
+  player.els = { scene, caption, playBtn, muteBtn, counter, progressFill };
+
+  const bar = el(
+    "div",
+    { class: "player-bar" },
+    el(
+      "span",
+      { class: "player-brand" },
+      el("span", { class: "brand-mark" }, "❯_"),
+      el("span", {}, "PatchStory"),
+      el("span", { class: "player-tag" }, "playing"),
+    ),
+    el("span", { class: "player-bar-title" }, W.title),
+    el("span", { class: "player-bar-spacer" }),
+    closeBtn,
+  );
+
+  const controls = el(
+    "div",
+    { class: "player-controls" },
+    prevBtn,
+    playBtn,
+    nextBtn,
+    counter,
+    el("div", { class: "player-progress" }, progressFill),
+    muteBtn,
+  );
+
+  const overlay = el(
+    "div",
+    { class: "player", role: "dialog", "aria-label": "Walkthrough playback" },
+    bar,
+    el("div", { class: "player-body" }, scene),
+    caption,
+    controls,
+  );
+
+  player.overlay = overlay;
+  document.body.appendChild(overlay);
+  window.addEventListener("keydown", playerKey, true);
+  playScene();
+}
+
+function closePlayer() {
+  stopSceneTimers();
+  player.playing = false;
+  window.removeEventListener("keydown", playerKey, true);
+  if (player.overlay) {
+    player.overlay.remove();
+    player.overlay = null;
+  }
+  player.els = null;
+  player.code = null;
 }
 
 /* -------------------------------- Boot ---------------------------------- */

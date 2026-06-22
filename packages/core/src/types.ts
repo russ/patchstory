@@ -54,6 +54,14 @@ export interface Chapter {
   summary: string;
   /** Why this part of the change exists. */
   intent?: string;
+  /**
+   * Spoken narration for this chapter, used by the in-page "play" mode (a
+   * narrated, auto-advancing screencast). One to four sentences of plain,
+   * conversational prose — what a reviewer would say out loud while walking
+   * someone through this change. Optional: when absent, play mode falls back
+   * to `intent` then `summary`.
+   */
+  narration?: string;
   risk_level: RiskLevel;
   files: string[];
   diff_hunks: DiffHunkRef[];
