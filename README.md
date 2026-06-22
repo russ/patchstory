@@ -177,6 +177,7 @@ Commands
   file <path.diff>        raw unified diff file
   github <pr-url>         GitHub PR (uses `gh` if available, else public .diff)
   render <walkthrough>    render an existing pr-walkthrough.json
+  video <walkthrough>     render a narrated .mp4 screencast of the walkthrough
   serve [dir|file]        serve an output folder/file on your LAN
   schema                  print the pr-walkthrough.json JSON Schema
 
@@ -195,8 +196,13 @@ Options
       --serve             serve the result on your LAN after generating
       --open              open the result in a browser
       --port <n>          port for --serve / serve (default 8137)
-      --diff <file>       (render only) raw diff to fill the diff explorer
+      --diff <file>       (render/video) raw diff to fill the diff explorer
       --zip               also write <out>.zip
+      --tts <engine>      (video) auto | elevenlabs | espeak-ng | flite | say | none
+      --voice <id>        (video) voice id (elevenlabs) or name (espeak-ng/say)
+      --chrome <path>     (video) Chrome/Chromium used to rasterize scenes
+      --fps <n>           (video) frames per second (default 30)
+      --keep              (video) keep the intermediate working dir
   -h, --help              show help
       --version           show version
 ```
@@ -211,6 +217,27 @@ produces output.
 `file://`); or `--serve`/`serve` hosts the output on your LAN and prints a URL
 others can open. `--redact` masks secrets (token shapes, `KEY=value`, private
 keys) in the diff before it's embedded *or* sent to an AI generator.
+
+### Narrated video (opt-in MP4)
+
+`patchstory video <walkthrough.json> --diff <pr.diff> -o walkthrough.mp4` renders the
+same scenes as the in-page play mode into a real, shareable `.mp4`: a title card plus
+one scene per chapter, each panning the actual diff (spotlighting referenced lines)
+while a narration track plays. Unlike everything else here, this one shells out to
+**system tools** (it adds no npm runtime deps, and they're only touched when you ask
+for a video):
+
+- **ffmpeg** + **ffprobe** — compositing and concat. Resolved from `PATH`, then
+  `/usr/bin`, then `PATCHSTORY_FFMPEG` / `PATCHSTORY_FFPROBE` (each validated by
+  actually running it, so a broken/shadowing PATH entry is skipped).
+- **Chromium/Chrome** — rasterizes each scene to an image (`--chrome <path>`,
+  `PATCHSTORY_CHROME`, or a `flatpak` Chromium are all picked up).
+- **Text-to-speech**, chosen by `--tts` (default `auto`): `elevenlabs`
+  (`ELEVENLABS_API_KEY`, best quality), or local `espeak-ng` / `flite` / macOS
+  `say` (no key, robotic), or `none` (silent; captions still shown).
+
+It's slower and heavier than the HTML — the play mode is the local-first default;
+the MP4 is for when you need a file to drop in Slack or a release thread.
 
 ### Interactive UI
 
