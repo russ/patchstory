@@ -56,6 +56,7 @@ export const WALKTHROUGH_JSON_SCHEMA = {
           title: { type: "string" },
           summary: { type: "string" },
           intent: { type: "string" },
+          narration: { type: "string" },
           risk_level: { type: "string", enum: ["low", "medium", "high"] },
           files: { type: "array", items: { type: "string" } },
           diff_hunks: {

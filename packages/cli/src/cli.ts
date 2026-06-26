@@ -23,7 +23,8 @@ import type {
   ResolvedSource,
   WalkthroughBundle,
 } from "@patchstory/core";
-import { renderWalkthrough, renderSingleFile } from "@patchstory/renderer";
+import { renderWalkthrough, renderSingleFile, renderVideo } from "@patchstory/renderer";
+import type { TtsProvider } from "@patchstory/renderer";
 import { parseArgs, flagStr } from "./args.ts";
 import { zipDirectory } from "./zip.ts";
 import { serveStatic, findFreePort, openBrowser, lanIp } from "./serve.ts";
@@ -45,6 +46,7 @@ Commands:
   file <path.diff>        Walkthrough of a raw unified diff file
   github <pr-url>         Walkthrough of a GitHub pull request
   render <walkthrough>    Render an existing pr-walkthrough.json
+  video <walkthrough>     Render a narrated .mp4 screencast of the walkthrough
   serve [dir|file]        Serve an output folder/file on your LAN
   schema                  Print the pr-walkthrough.json JSON Schema
 
@@ -64,8 +66,14 @@ Options:
       --serve             Serve the result on your LAN after generating
       --open              Open the result in a browser
       --port <n>          Port for --serve / serve   (default: 8137)
-      --diff <file>       (render only) raw diff to populate the diff explorer
+      --diff <file>       (render/video) raw diff to populate the diff explorer
       --zip               Also write <out>.zip
+      --engine <name>     (video) hyperframes (animated, default) | pan (static)
+      --tts <engine>      (video) auto | elevenlabs | kokoro | espeak-ng | flite | say | none
+      --voice <id>        (video) voice id (elevenlabs) or name (kokoro/espeak-ng/say)
+      --chrome <path>     (video) Chrome/Chromium binary for the pan engine
+      --fps <n>           (video) frames per second                (default: 30)
+      --keep              (video) keep the intermediate working dir
   -h, --help              Show this help
       --version           Show version
 
@@ -133,6 +141,38 @@ async function main() {
   // `schema` is standalone: print the canonical JSON Schema for the IR.
   if (command === "schema") {
     process.stdout.write(JSON.stringify(WALKTHROUGH_JSON_SCHEMA, null, 2) + "\n");
+    return;
+  }
+
+  // `video` renders a narrated .mp4 from an existing walkthrough JSON (+ diff).
+  if (command === "video") {
+    const redactV = !!flags.redact;
+    const result = await renderCommand(positionals, flags, redactV);
+    const bundle: WalkthroughBundle = { walkthrough: result.walkthrough, diff: result.diff };
+    const outFlag = flagStr(flags, "out") ?? "./walkthrough.mp4";
+    const outFile = /\.mp4$/i.test(outFlag) ? outFlag : `${outFlag}.mp4`;
+    process.stdout.write(`\nRendering video → ${resolve(outFile)}\n`);
+    try {
+      const res = await renderVideo(bundle, {
+        out: outFile,
+        engine: (flagStr(flags, "engine") as "hyperframes" | "pan" | undefined),
+        tts: flagStr(flags, "tts") as TtsProvider | undefined,
+        voice: flagStr(flags, "voice"),
+        chrome: flagStr(flags, "chrome"),
+        fps: flags.fps ? Number(flagStr(flags, "fps")) : undefined,
+        keep: !!flags.keep,
+        onProgress: (m) => process.stdout.write(`  ${m}\n`),
+      });
+      process.stdout.write(
+        `\n✓ Video written to ${res.file}\n` +
+          `  ${res.sceneCount} scenes · ~${Math.round(res.durationSec)}s · tts: ${res.ttsProvider}\n`,
+      );
+      if (redactV) {
+        process.stdout.write("🛈 Redaction on: secrets masked in the diff shown on-screen.\n");
+      }
+    } catch (err) {
+      fail(err instanceof Error ? err.message : String(err));
+    }
     return;
   }
 

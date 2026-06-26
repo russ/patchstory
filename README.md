@@ -35,6 +35,11 @@ patchstory render ./pr-walkthrough.json --out ./site
   `fetch` required). Zip-friendly.
 - **AI optional.** A heuristic generator always works with no API key. AI
   *improves* the story; it is never required.
+- **Narrated play mode.** Press **▶ Play** to turn the walkthrough into a
+  self-playing screencast: each chapter becomes a scene that pans the actual
+  diff and spotlights the lines it references, narrated aloud via the browser's
+  built-in speech synthesis (captions included). No ffmpeg, no API key, no
+  network — the same single `.html`, just playing itself.
 
 ---
 
@@ -172,6 +177,7 @@ Commands
   file <path.diff>        raw unified diff file
   github <pr-url>         GitHub PR (uses `gh` if available, else public .diff)
   render <walkthrough>    render an existing pr-walkthrough.json
+  video <walkthrough>     render a narrated .mp4 screencast of the walkthrough
   serve [dir|file]        serve an output folder/file on your LAN
   schema                  print the pr-walkthrough.json JSON Schema
 
@@ -190,8 +196,13 @@ Options
       --serve             serve the result on your LAN after generating
       --open              open the result in a browser
       --port <n>          port for --serve / serve (default 8137)
-      --diff <file>       (render only) raw diff to fill the diff explorer
+      --diff <file>       (render/video) raw diff to fill the diff explorer
       --zip               also write <out>.zip
+      --tts <engine>      (video) auto | elevenlabs | espeak-ng | flite | say | none
+      --voice <id>        (video) voice id (elevenlabs) or name (espeak-ng/say)
+      --chrome <path>     (video) Chrome/Chromium used to rasterize scenes
+      --fps <n>           (video) frames per second (default 30)
+      --keep              (video) keep the intermediate working dir
   -h, --help              show help
       --version           show version
 ```
@@ -207,6 +218,36 @@ produces output.
 others can open. `--redact` masks secrets (token shapes, `KEY=value`, private
 keys) in the diff before it's embedded *or* sent to an AI generator.
 
+### Narrated video (opt-in MP4)
+
+`patchstory video <walkthrough.json> --diff <pr.diff> -o walkthrough.mp4` renders the
+walkthrough into a real, shareable `.mp4`: a title card, one **animated** scene per
+chapter (the diff reveals line-by-line and the referenced lines light up as they're
+narrated), and an outro. Unlike everything else here, this shells out to **system
+tools** — it adds no npm runtime deps, and they're only touched when you ask for a video.
+
+Two engines (`--engine`):
+
+- **`hyperframes`** (default) — generates a [HyperFrames](https://hyperframes.heygen.com)
+  composition (HTML + GSAP) and renders it frame-by-frame in headless Chrome via
+  `npx hyperframes`. This is the animated one. Needs network for `npx` on first use.
+- **`pan`** — a fully local fallback: rasterizes each scene with Chromium and pans it
+  with **ffmpeg**. No `npx`/network; lower production value.
+
+**Text-to-speech** (`--tts`, default `auto`): `elevenlabs` (`ELEVENLABS_API_KEY`, best
+quality), `kokoro` (local neural TTS via HyperFrames — no key, the keyless default),
+local `espeak-ng` / `flite` / macOS `say`, or `none` (silent; captions still shown).
+
+**ffmpeg/ffprobe** are resolved from `PATH`, then `/usr/bin`, then
+`PATCHSTORY_FFMPEG` / `PATCHSTORY_FFPROBE` — each validated by actually running it, so a
+broken or shadowing PATH entry is skipped (and the working one is handed to HyperFrames).
+
+Narration is the audio track — nothing is burned into or captioned over the frame, so the
+code and motion graphics stay unobstructed.
+
+It's slower and heavier than the HTML — the in-page play mode is the local-first default;
+the MP4 is for when you need a file to drop in Slack or a release thread.
+
 ### Interactive UI
 
 Syntax-highlighted diffs (highlight.js, bundled at build time — lazily applied
@@ -217,7 +258,9 @@ dark, copy-summary, a "Start here" guide and recurring-theme detection on the
 overview, related commits per chapter, and a footer build stamp.
 
 Keyboard: `j`/`k` next/prev chapter · `/` search · `e`/`c` expand/collapse all ·
-`r` toggle reviewed · `t` theme · `?` shortcuts · `Esc` close.
+`r` toggle reviewed · `p` play narrated walkthrough · `t` theme · `?` shortcuts ·
+`Esc` close. In play mode: `space` play/pause · `←`/`→` prev/next scene · `m`
+mute (captions only) · `Esc` close.
 
 ---
 

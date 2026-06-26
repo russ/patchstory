@@ -16,6 +16,10 @@ import { dirname, join } from "node:path";
 import type { WalkthroughBundle } from "@patchstory/core";
 import { WEB_CSS, WEB_HTML, WEB_JS } from "./assets.generated.ts";
 
+// Opt-in MP4 export (drives system ffmpeg + headless Chromium + a TTS engine).
+export { renderVideo } from "./video/index.ts";
+export type { VideoOptions, VideoResult, TtsProvider } from "./video/index.ts";
+
 export interface RenderOptions {
   /** ISO timestamp stamped into the document. */
   generatedAt?: string;

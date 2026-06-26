@@ -400,6 +400,109 @@ code { font-family: var(--mono); font-size: 0.85em; }
 }
 .help-row span { color: var(--text-soft); font-size: 13px; }
 
+/* ------------------------------ Play mode ------------------------------ */
+.playbtn { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
+.playbtn:hover { background: var(--border-soft); filter: none; }
+
+.player {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+
+.player-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px; border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.player-brand { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.player-tag {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+  color: var(--accent); background: var(--accent-soft);
+  padding: 2px 7px; border-radius: 10px;
+}
+.player-bar-title { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-bar-spacer { flex: 1; }
+
+.player-body { flex: 1; min-height: 0; display: flex; justify-content: center; padding: 24px 24px 0; }
+.player-scene {
+  width: min(960px, 100%); display: flex; flex-direction: column; min-height: 0;
+}
+.scene-in { animation: sceneIn 0.45s ease both; }
+@keyframes sceneIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.scene-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.scene-eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
+.scene-title { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.3px; overflow-wrap: anywhere; }
+.scene-intent { font-size: 15px; color: var(--text-soft); margin-bottom: 14px; max-width: 760px; }
+
+.scene-code {
+  flex: 1; min-height: 0; overflow: hidden; /* panned programmatically */
+  border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  scroll-behavior: auto;
+}
+.scene-file + .scene-file { border-top: 1px solid var(--border); }
+.scene-file-head {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  background: var(--bg-soft); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+}
+.scene-file-path { font-family: var(--mono); font-size: 13px; }
+.scene-nocode { padding: 28px; text-align: center; }
+
+/* Spotlighted lines — the ranges a chapter explicitly references. Non-spotlight
+   lines dim so the eye lands on what's being narrated. Dimming only kicks in
+   when the scene actually has spotlights (the `.has-spots` gate). */
+.scene-code.has-spots .dl { opacity: 0.4; transition: opacity 0.3s; }
+.scene-code.has-spots .dl-spot { opacity: 1; box-shadow: inset 2px 0 0 var(--accent); }
+
+.player-caption {
+  flex-shrink: 0; text-align: center;
+  padding: 16px 24px; max-width: 900px; margin: 0 auto;
+  font-size: 17px; line-height: 1.5; color: var(--text);
+  min-height: 3.2em; display: flex; align-items: center; justify-content: center;
+}
+
+.player-controls {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 22px; border-top: 1px solid var(--border); background: var(--bg-elev);
+}
+.pbtn {
+  border: 1px solid var(--border); background: var(--bg-soft); color: var(--text);
+  height: 38px; min-width: 38px; padding: 0 10px; border-radius: 9px;
+  cursor: pointer; font-size: 14px; font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.pbtn:hover { background: var(--border-soft); }
+.pbtn-play { background: var(--accent); color: #fff; border-color: var(--accent); font-size: 13px; }
+.pbtn-play:hover { filter: brightness(1.08); background: var(--accent); }
+.pbtn-mute.active { color: var(--accent); }
+.pbtn-close { margin-left: 0; }
+.player-counter { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 54px; text-align: center; }
+.player-progress { flex: 1; height: 6px; background: var(--border-soft); border-radius: 4px; overflow: hidden; }
+.player-progress-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
+
+.scene-end { text-align: center; margin: auto; padding: 40px 0; }
+.scene-end-mark {
+  width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%;
+  background: var(--risk-low-bg); color: var(--risk-low-fg);
+  display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700;
+}
+.scene-end h2 { margin: 0 0 6px; }
+.scene-end-actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-in { animation: none; }
+}
+
+@media (max-width: 800px) {
+  .player-body { padding: 16px 12px 0; }
+  .scene-title { font-size: 21px; }
+  .player-bar-title { display: none; }
+  .player-caption { font-size: 15px; padding: 12px 16px; }
+}
+
 @media (max-width: 800px) {
   /* Topbar: brand + menu + theme on row 1, full-width search wraps to row 2. */
   .topbar { flex-wrap: wrap; gap: 8px 10px; padding: 10px 14px; }
