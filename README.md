@@ -43,13 +43,26 @@ patchstory render ./pr-walkthrough.json --out ./site
 
 ---
 
-## What it looks like
+## See it in action
 
-A 6-file PR — *"Add Redis-backed rate limiting to the public API"* — walked
-through by PatchStory. The source diff and the agent-authored story are tracked
+A 6-file PR — *"Add Redis-backed rate limiting to the public API"* — turned into a
+narrated walkthrough by PatchStory. Watch it as a ~2.5-minute video (with audio) — a
+title card, then one animated scene per chapter where the diff reveals and the
+referenced lines light up as they're narrated:
+
+<p align="center">
+  <video
+    src="https://github.com/user-attachments/assets/34763002-5a8c-46b9-9c59-ef8eb3cf226f"
+    poster="https://raw.githubusercontent.com/russ/patchstory/main/assets/demo-poster.png"
+    controls
+    width="860"
+  ></video>
+</p>
+
+The source diff and the agent-authored story are tracked
 in [`examples/rate-limiting.diff`](examples/rate-limiting.diff) and
-[`examples/rate-limiting.json`](examples/rate-limiting.json); render the page
-below yourself with:
+[`examples/rate-limiting.json`](examples/rate-limiting.json); render the interactive
+page below yourself with:
 
 ```bash
 patchstory render examples/rate-limiting.json --diff examples/rate-limiting.diff --single-file --open
