@@ -50,6 +50,7 @@
       "title": "Data model & migrations",
       "summary": "Adds rate_limit_tier and requests_per_minute to api_clients, with an index on the tier.",
       "intent": "Give every API client a durable tier and an optional per-client ceiling, so the limit travels with the record instead of living only in config.",
+      "narration": "First, the data model. Every API client gets a durable tier and an optional per-client ceiling, added right on the api_clients table — so the limit travels with the record instead of living only in config. Both columns are non-null with defaults, so existing clients backfill automatically to the standard tier.",
       "risk_level": "high",
       "files": [
         "db/migrate/20260201000000_add_rate_limiting_to_api_clients.rb"
@@ -77,6 +78,7 @@
       "title": "Domain model — ApiClient#rate_limit",
       "summary": "Adds the TIER_LIMITS table, a tier validation, the effective-limit calculation, and the Redis key helper.",
       "intent": "Make the model the single source of truth for 'what is this client's limit right now', so the middleware stays dumb and testable.",
+      "narration": "Next, the model becomes the single source of truth for a client's current limit. It defines the tier ceilings, validates the tier, and computes the effective limit by taking the higher of the tier default and any per-client override. Worth a close look: that override can only raise the ceiling, never tighten it.",
       "risk_level": "medium",
       "files": [
         "app/models/api_client.rb"
@@ -104,6 +106,7 @@
       "title": "Request middleware — RateLimiter",
       "summary": "New Rack middleware: increments a per-window Redis counter, short-circuits with 429 over the ceiling, and stamps X-RateLimit-* headers on every API response.",
       "intent": "Enforce the ceiling at the edge of the request cycle, before controllers run, while leaving non-API and unauthenticated traffic completely untouched.",
+      "narration": "This is the enforcement path, and the riskiest chapter. A new Rack middleware increments a per-minute counter in Redis, and once a client crosses its ceiling it short-circuits the request with a 429 and a Retry-After header. Two things to scrutinize: the window is a fixed wall-clock minute, so a client can burst across the boundary — and if Redis goes down, decide whether the API should fail open or closed.",
       "risk_level": "high",
       "files": [
         "app/middleware/rate_limiter.rb"
@@ -133,6 +136,7 @@
       "title": "Configuration",
       "summary": "Adds config/rate_limits.yml: per-environment enable flag and the documented tier ceilings.",
       "intent": "Let enforcement be toggled per environment (off in development) and keep the tier ceilings written down in one place for seeds and humans.",
+      "narration": "Configuration keeps the tier ceilings in one place and lets enforcement be toggled per environment — off in development. Just confirm the enabled flag is actually wired up, and that these numbers stay in sync with the model.",
       "risk_level": "low",
       "files": [
         "config/rate_limits.yml"
@@ -159,6 +163,7 @@
       "title": "Tests",
       "summary": "Specs for the middleware: under-limit pass-through, 429 over the ceiling, non-API/unauthenticated pass-through, and per-client override.",
       "intent": "Lock in the four behaviors that matter: it throttles, it doesn't over-throttle, it ignores what it should, and overrides win.",
+      "narration": "The specs lock in the four behaviors that matter: it throttles over the limit, it doesn't throttle under it, it ignores non-API and unauthenticated traffic, and overrides win. They run against a mock Redis, so the two riskiest cases — the window boundary and Redis being down — are still unspecified.",
       "risk_level": "low",
       "files": [
         "spec/middleware/rate_limiter_spec.rb"
@@ -185,6 +190,7 @@
       "title": "Documentation",
       "summary": "Adds docs/api/rate-limiting.md: tiers table, override behavior, and the response headers contract.",
       "intent": "Tell API consumers exactly what to expect — the ceilings, how to read their remaining budget, and what a 429 looks like.",
+      "narration": "Finally, the docs tell API consumers exactly what to expect: the ceilings for each tier, how overrides behave, and the rate-limit headers on every response. Worth checking that every number here stays in sync with the model and the config — this is the third place those ceilings appear.",
       "risk_level": "low",
       "files": [
         "docs/api/rate-limiting.md"
