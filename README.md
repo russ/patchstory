@@ -242,9 +242,8 @@ local `espeak-ng` / `flite` / macOS `say`, or `none` (silent; captions still sho
 `PATCHSTORY_FFMPEG` / `PATCHSTORY_FFPROBE` — each validated by actually running it, so a
 broken or shadowing PATH entry is skipped (and the working one is handed to HyperFrames).
 
-Narration is **not** burned into the frame — it's muxed in as a soft (toggleable)
-subtitle track and also written next to the output as a sidecar `.srt`, so viewers turn
-captions on/off and the player styles/positions them however they prefer.
+Narration is the audio track — nothing is burned into or captioned over the frame, so the
+code and motion graphics stay unobstructed.
 
 It's slower and heavier than the HTML — the in-page play mode is the local-first default;
 the MP4 is for when you need a file to drop in Slack or a release thread.
