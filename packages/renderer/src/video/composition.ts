@@ -29,7 +29,6 @@ export interface VideoScene {
   filePath?: string;
   rows?: CodeRow[];
   hasSpots: boolean;
-  captions: string[];
   /** Absolute timeline position (seconds). */
   start: number;
   dur: number;
@@ -96,9 +95,6 @@ body { font-family: system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sa
 .row.add { background:rgba(63,185,80,0.07); } .row.del { background:rgba(248,81,73,0.07); }
 .row .c { overflow:hidden; padding-right:24px; }
 
-/* captions */
-.cap { position:absolute; left:50%; bottom:78px; width:1560px; text-align:center; font-size:46px; font-weight:800; letter-spacing:-0.02em; color:#fff; opacity:0; }
-
 /* title / outro takeover */
 .takeover { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:30px; padding:0 200px; }
 .tk-eyebrow { font-size:30px; font-weight:800; letter-spacing:0.4em; text-transform:uppercase; color:var(--accent); }
@@ -143,9 +139,6 @@ function sceneHtml(s: VideoScene, idx: number, z: number): string {
     );
   }
   const rows = (s.rows ?? []).map(rowHtml).join("");
-  const caps = s.captions
-    .map((c, i) => `<div class="cap" id="${id}-cap${i}">${esc(c)}</div>`)
-    .join("");
   return (
     `<div class="scene clip" id="${id}" data-start="${s.start}" data-duration="${s.dur}" data-track-index="${z}" style="z-index:${z}">` +
     `<div class="hdr" id="${id}-hdr">` +
@@ -159,7 +152,6 @@ function sceneHtml(s: VideoScene, idx: number, z: number): string {
     (rows
       ? `<div class="code" id="${id}-code"><div class="code-head"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="code-path mono">${esc(s.filePath ?? "")}</span></div><div class="code-body">${rows}</div></div>`
       : "") +
-    caps +
     `</div>`
   );
 }
@@ -206,25 +198,8 @@ function sceneTimeline(s: VideoScene, idx: number): string[] {
     }
   }
 
-  // captions: sentence beats across the VO window, proportional to length
-  const caps = s.captions;
-  if (caps.length) {
-    const total = caps.reduce((a, c) => a + Math.max(8, c.length), 0);
-    let cum = 0;
-    caps.forEach((c, i) => {
-      const w = Math.max(8, c.length);
-      const segStart = s.voStart + (s.voDur * cum) / total;
-      cum += w;
-      const segEnd = s.voStart + (s.voDur * cum) / total;
-      const inAt = i === 0 ? Math.max(t + 0.4, segStart) : segStart;
-      const outAt = Math.min(segEnd - 0.12, end - FADE - 0.1);
-      L.push(`tl.fromTo("${id}-cap${i}",{autoAlpha:0,y:16},{autoAlpha:1,y:0,duration:0.4},${at(inAt)});`);
-      if (outAt > inAt + 0.3) {
-        L.push(`tl.to("${id}-cap${i}",{autoAlpha:0,duration:0.3},${at(outAt)});`);
-        L.push(`tl.set("${id}-cap${i}",{autoAlpha:0},${at(outAt + 0.32)});`);
-      }
-    });
-  }
+  // Narration is delivered as a soft subtitle track (see hyperframes.ts), not
+  // burned into the frame — so there are no on-screen caption tweens here.
   return L;
 }
 
