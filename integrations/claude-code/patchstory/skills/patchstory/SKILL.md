@@ -175,10 +175,12 @@ including the chapter's `narration` (spoken script for "play" mode).
   background — it binds `0.0.0.0` and prints a URL other devices can open. The `--port` is a
   starting hint; if taken, serve picks the next free port and prints the real one.
 - **Want a shareable video instead of HTML?** `patchstory video "$WORK/pr-walkthrough.json"
-  --diff "$WORK/pr.diff" --redact -o "$WORK/walkthrough.mp4"` renders a narrated `.mp4`
-  screencast from the same JSON (this is why authoring `narration` is worth it). It needs
-  system `ffmpeg` + Chromium and a TTS engine (`--tts auto` picks ElevenLabs if
-  `ELEVENLABS_API_KEY` is set, else local `espeak-ng`/`flite`/`say`, else silent). It's
-  slower and heavier than the HTML — only reach for it when a video file is the deliverable.
+  --diff "$WORK/pr.diff" --redact -o "$WORK/walkthrough.mp4"` renders a narrated, **animated**
+  `.mp4` from the same JSON (a title card + one scene per chapter where the diff reveals and
+  the referenced lines light up as they're narrated — this is why authoring `narration` is
+  worth it). Default engine `hyperframes` (animated, via `npx hyperframes`; needs network);
+  `--engine pan` is a local ffmpeg fallback. TTS `--tts auto` picks ElevenLabs if
+  `ELEVENLABS_API_KEY` is set, else local `kokoro` (no key). Slower/heavier than the HTML —
+  only reach for it when a video file is the deliverable.
 - **Private PRs** need `gh` (authenticated). The public `.diff` fallback is public-repos-only.
 - The work dir under `~/.cache/patchstory/` persists; old runs can be deleted freely.

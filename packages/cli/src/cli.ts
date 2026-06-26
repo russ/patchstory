@@ -68,9 +68,10 @@ Options:
       --port <n>          Port for --serve / serve   (default: 8137)
       --diff <file>       (render/video) raw diff to populate the diff explorer
       --zip               Also write <out>.zip
-      --tts <engine>      (video) auto | elevenlabs | espeak-ng | flite | say | none
-      --voice <id>        (video) voice id (elevenlabs) or name (espeak-ng/say)
-      --chrome <path>     (video) Chrome/Chromium binary for rasterizing scenes
+      --engine <name>     (video) hyperframes (animated, default) | pan (static)
+      --tts <engine>      (video) auto | elevenlabs | kokoro | espeak-ng | flite | say | none
+      --voice <id>        (video) voice id (elevenlabs) or name (kokoro/espeak-ng/say)
+      --chrome <path>     (video) Chrome/Chromium binary for the pan engine
       --fps <n>           (video) frames per second                (default: 30)
       --keep              (video) keep the intermediate working dir
   -h, --help              Show this help
@@ -154,6 +155,7 @@ async function main() {
     try {
       const res = await renderVideo(bundle, {
         out: outFile,
+        engine: (flagStr(flags, "engine") as "hyperframes" | "pan" | undefined),
         tts: flagStr(flags, "tts") as TtsProvider | undefined,
         voice: flagStr(flags, "voice"),
         chrome: flagStr(flags, "chrome"),

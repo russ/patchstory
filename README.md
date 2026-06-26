@@ -221,22 +221,28 @@ keys) in the diff before it's embedded *or* sent to an AI generator.
 ### Narrated video (opt-in MP4)
 
 `patchstory video <walkthrough.json> --diff <pr.diff> -o walkthrough.mp4` renders the
-same scenes as the in-page play mode into a real, shareable `.mp4`: a title card plus
-one scene per chapter, each panning the actual diff (spotlighting referenced lines)
-while a narration track plays. Unlike everything else here, this one shells out to
-**system tools** (it adds no npm runtime deps, and they're only touched when you ask
-for a video):
+walkthrough into a real, shareable `.mp4`: a title card, one **animated** scene per
+chapter (the diff reveals line-by-line and the referenced lines light up as they're
+narrated), and an outro. Unlike everything else here, this shells out to **system
+tools** — it adds no npm runtime deps, and they're only touched when you ask for a video.
 
-- **ffmpeg** + **ffprobe** — compositing and concat. Resolved from `PATH`, then
-  `/usr/bin`, then `PATCHSTORY_FFMPEG` / `PATCHSTORY_FFPROBE` (each validated by
-  actually running it, so a broken/shadowing PATH entry is skipped).
-- **Chromium/Chrome** — rasterizes each scene to an image (`--chrome <path>`,
-  `PATCHSTORY_CHROME`, or a `flatpak` Chromium are all picked up).
-- **Text-to-speech**, chosen by `--tts` (default `auto`): `elevenlabs`
-  (`ELEVENLABS_API_KEY`, best quality), or local `espeak-ng` / `flite` / macOS
-  `say` (no key, robotic), or `none` (silent; captions still shown).
+Two engines (`--engine`):
 
-It's slower and heavier than the HTML — the play mode is the local-first default;
+- **`hyperframes`** (default) — generates a [HyperFrames](https://hyperframes.heygen.com)
+  composition (HTML + GSAP) and renders it frame-by-frame in headless Chrome via
+  `npx hyperframes`. This is the animated one. Needs network for `npx` on first use.
+- **`pan`** — a fully local fallback: rasterizes each scene with Chromium and pans it
+  with **ffmpeg**. No `npx`/network; lower production value.
+
+**Text-to-speech** (`--tts`, default `auto`): `elevenlabs` (`ELEVENLABS_API_KEY`, best
+quality), `kokoro` (local neural TTS via HyperFrames — no key, the keyless default),
+local `espeak-ng` / `flite` / macOS `say`, or `none` (silent; captions still shown).
+
+**ffmpeg/ffprobe** are resolved from `PATH`, then `/usr/bin`, then
+`PATCHSTORY_FFMPEG` / `PATCHSTORY_FFPROBE` — each validated by actually running it, so a
+broken or shadowing PATH entry is skipped (and the working one is handed to HyperFrames).
+
+It's slower and heavier than the HTML — the in-page play mode is the local-first default;
 the MP4 is for when you need a file to drop in Slack or a release thread.
 
 ### Interactive UI

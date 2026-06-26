@@ -35,11 +35,25 @@ import {
   type SceneSpec,
 } from "./scene-html.ts";
 
-export type TtsProvider = "auto" | "elevenlabs" | "espeak-ng" | "flite" | "say" | "none";
+export type TtsProvider =
+  | "auto"
+  | "elevenlabs"
+  | "kokoro"
+  | "espeak-ng"
+  | "flite"
+  | "say"
+  | "none";
+
+/** Pinned so renders are reproducible. */
+export const HYPERFRAMES_VERSION = "0.7.11";
+
+export type VideoEngine = "hyperframes" | "pan";
 
 export interface VideoOptions {
   /** Output .mp4 path. */
   out: string;
+  /** "hyperframes" = animated GSAP scenes (default); "pan" = static screenshot pan. */
+  engine?: VideoEngine;
   tts?: TtsProvider;
   /** Voice id (elevenlabs) or voice name (espeak-ng/say). */
   voice?: string;
@@ -76,7 +90,7 @@ function has(bin: string): boolean {
  * ffmpeg missing shared libs) by validating each candidate and falling back to
  * the system location. Honors an explicit override / env var first.
  */
-function resolveTool(name: string, override?: string): string {
+export function resolveTool(name: string, override?: string): string {
   const candidates = [
     override,
     process.env[`PATCHSTORY_${name.toUpperCase()}`],
@@ -192,7 +206,7 @@ function chromeScreenshot(
 
 /* --------------------------------- ffmpeg -------------------------------- */
 
-function ffprobeDuration(ffprobe: string, path: string): number {
+export function ffprobeDuration(ffprobe: string, path: string): number {
   const r = spawnSync(
     ffprobe,
     ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
@@ -301,13 +315,14 @@ function pickTts(requested: TtsProvider | undefined): TtsProvider {
   return "none";
 }
 
-async function synth(
+export async function synth(
   provider: TtsProvider,
   text: string,
   outBase: string,
   voice: string | undefined,
+  env?: NodeJS.ProcessEnv,
 ): Promise<string | null> {
-  if (provider === "none" || !text.trim()) return null;
+  if (provider === "none" || provider === "auto" || !text.trim()) return null;
 
   if (provider === "elevenlabs") {
     const key = process.env.ELEVENLABS_API_KEY;
@@ -326,21 +341,34 @@ async function synth(
     return out;
   }
 
+  if (provider === "kokoro") {
+    // Local neural TTS via hyperframes' bundled Kokoro — no API key.
+    const out = `${outBase}.wav`;
+    const r = spawnSync(
+      "npx",
+      ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`, "tts", text, "-o", out, "-v", voice || "af_heart", "-s", "0.97"],
+      { encoding: "utf8", env: env ?? process.env, maxBuffer: 16 * 1024 * 1024 },
+    );
+    if (r.status !== 0 || !existsSync(out)) {
+      throw new Error(`kokoro (hyperframes tts) failed: ${(r.stderr ?? "").slice(-300)}`);
+    }
+    return out;
+  }
+
   // Local engines read the text from a file (avoids any shell-quoting issues).
   const txtPath = `${outBase}.txt`;
   writeFileSync(txtPath, text);
+  const opt = { encoding: "utf8" as const, env: env ?? process.env };
 
   if (provider === "espeak-ng") {
     const out = `${outBase}.wav`;
-    const r = spawnSync("espeak-ng", ["-v", voice || "en-us", "-s", "165", "-w", out, "-f", txtPath], {
-      encoding: "utf8",
-    });
+    const r = spawnSync("espeak-ng", ["-v", voice || "en-us", "-s", "165", "-w", out, "-f", txtPath], opt);
     if (r.status !== 0 || !existsSync(out)) throw new Error(`espeak-ng failed: ${r.stderr ?? ""}`);
     return out;
   }
   if (provider === "flite") {
     const out = `${outBase}.wav`;
-    const r = spawnSync("flite", ["-f", txtPath, "-o", out], { encoding: "utf8" });
+    const r = spawnSync("flite", ["-f", txtPath, "-o", out], opt);
     if (r.status !== 0 || !existsSync(out)) throw new Error(`flite failed: ${r.stderr ?? ""}`);
     return out;
   }
@@ -348,7 +376,7 @@ async function synth(
     const out = `${outBase}.aiff`;
     const a = ["-o", out, "-f", txtPath];
     if (voice) a.unshift("-v", voice);
-    const r = spawnSync("say", a, { encoding: "utf8" });
+    const r = spawnSync("say", a, opt);
     if (r.status !== 0 || !existsSync(out)) throw new Error(`say failed: ${r.stderr ?? ""}`);
     return out;
   }
@@ -357,7 +385,7 @@ async function synth(
 
 /* --------------------------------- scenes -------------------------------- */
 
-function orderedChapters(w: WalkthroughBundle["walkthrough"]): Chapter[] {
+export function orderedChapters(w: WalkthroughBundle["walkthrough"]): Chapter[] {
   if (w.reviewer_path?.length) {
     const byId = new Map(w.chapters.map((c) => [c.id, c]));
     const seen = new Set<string>();
@@ -375,12 +403,12 @@ function orderedChapters(w: WalkthroughBundle["walkthrough"]): Chapter[] {
   return w.chapters;
 }
 
-function narrationFor(c: Chapter): string {
+export function narrationFor(c: Chapter): string {
   if (c.narration && c.narration.trim()) return c.narration.trim();
   return [c.intent, c.summary].filter(Boolean).join(" ").trim();
 }
 
-function estimateDuration(text: string): number {
+export function estimateDuration(text: string): number {
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   return Math.min(18, Math.max(3.5, words / 2.6));
 }
@@ -388,6 +416,19 @@ function estimateDuration(text: string): number {
 /* --------------------------------- driver -------------------------------- */
 
 export async function renderVideo(
+  bundle: WalkthroughBundle,
+  opts: VideoOptions,
+): Promise<VideoResult> {
+  const engine = opts.engine ?? "hyperframes";
+  if (engine === "pan") return renderVideoPan(bundle, opts);
+  // Dynamic import keeps the static module graph acyclic (hyperframes.ts pulls
+  // its shared helpers from here).
+  const { renderVideoHyperframes } = await import("./hyperframes.ts");
+  return renderVideoHyperframes(bundle, opts);
+}
+
+/** The static-screenshot + ffmpeg-pan engine (`--engine pan`). */
+async function renderVideoPan(
   bundle: WalkthroughBundle,
   opts: VideoOptions,
 ): Promise<VideoResult> {
